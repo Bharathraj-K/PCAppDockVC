@@ -45,8 +45,6 @@ public class DockManager : MonoBehaviour
 
     void CreateAppButton(AppData app)
     {
-        Debug.Log($"Prefab null? {appButtonPrefab == null}, Container null? {appContainer == null}");
-
         GameObject button = Instantiate(appButtonPrefab, appContainer);
         button.GetComponentInChildren<TextMeshProUGUI>().text = app.name;
         button.GetComponent<Button>().onClick.AddListener(() => {
