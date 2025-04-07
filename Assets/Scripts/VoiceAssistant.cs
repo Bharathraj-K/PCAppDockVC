@@ -1,83 +1,100 @@
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
+using UnityEngine.Windows.Speech;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using Newtonsoft.Json;
-using UnityEngine.Windows.Speech;
+using System.Collections;
+using System.Net.Http;
+using System.Text;
+using Newtonsoft.Json.Linq;
 
 public class VoiceAssistant : MonoBehaviour
 {
     public Button micButton;
     public TMP_Text smallTextBox;
-    public GameObject largeTextBoxObject;
-    public TMP_Text largeText;
+
+    public GameObject chatBubbleObject;
+    public TMP_Text chatBubbleText;
+    private CanvasGroup chatBubbleCanvasGroup;
+
+    private DictationRecognizer dictationRecognizer;
+    private string lastResult = "";
 
     private Dictionary<string, string> appDict = new();
     private string appsPath;
 
-    private DictationRecognizer dictationRecognizer;
-    private string lastResult = "";
-    private bool isAwaitingYesNoResponse = false;
+    private Coroutine fadeCoroutine;
+    private bool isHoveringChatBubble = false;
+    public float postHoverDelay = 2f;
+
+    private bool isListening = false;
+    private List<Dictionary<string, string>> conversationHistory = new();
+
 
     void Start()
     {
+        chatBubbleCanvasGroup = chatBubbleObject.GetComponent<CanvasGroup>();
         appsPath = Path.Combine(Application.persistentDataPath, "vc_apps.json");
         LoadAppData();
 
         dictationRecognizer = new DictationRecognizer();
         dictationRecognizer.InitialSilenceTimeoutSeconds = 5;
-        dictationRecognizer.AutoSilenceTimeoutSeconds = 2;
+        dictationRecognizer.AutoSilenceTimeoutSeconds = 10;
 
         dictationRecognizer.DictationResult += (text, confidence) =>
         {
             lastResult = text;
             smallTextBox.text = "You said: " + text;
-            dictationRecognizer.Stop();
-
-            if (!isAwaitingYesNoResponse)
-            {
-                HandleCommand(text.ToLower());
-            }
+            StopListening();
+            HandleCommand(text.ToLower());
         };
 
         dictationRecognizer.DictationComplete += (completionCause) =>
         {
-            if (completionCause != DictationCompletionCause.Complete)
-            {
+            isListening = false;
+            if (string.IsNullOrEmpty(lastResult))
                 smallTextBox.text = "Could not understand.";
-            }
         };
 
         dictationRecognizer.DictationError += (error, hresult) =>
         {
+            isListening = false;
             smallTextBox.text = $"Error: {error}";
         };
 
         micButton.onClick.AddListener(OnMicClicked);
-    }
 
-    void LoadAppData()
-    {
-        if (File.Exists(appsPath))
-        {
-            var json = File.ReadAllText(appsPath);
-            appDict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
-        }
-    }
-
-    void SaveAppData()
-    {
-        var json = JsonConvert.SerializeObject(appDict, Formatting.Indented);
-        File.WriteAllText(appsPath, json);
+        chatBubbleObject.SetActive(false);
     }
 
     void OnMicClicked()
     {
-        smallTextBox.text = "Listening...";
-        lastResult = "";
-        dictationRecognizer.Start();
+        if (!isListening)
+        {
+            smallTextBox.text = "Listening...";
+            lastResult = "";
+            dictationRecognizer.Start();
+            isListening = true;
+        }
+        else
+        {
+            StopListening();
+            smallTextBox.text = !string.IsNullOrEmpty(lastResult) ? "You said: " + lastResult : "Stopped listening.";
+        }
+    }
+
+    void StopListening(string reason = "")
+    {
+        if (dictationRecognizer.Status == SpeechSystemStatus.Running)
+            dictationRecognizer.Stop();
+
+        isListening = false;
+
+        if (!string.IsNullOrEmpty(reason))
+            smallTextBox.text = reason;
     }
 
     async void HandleCommand(string command)
@@ -85,7 +102,6 @@ public class VoiceAssistant : MonoBehaviour
         if (command.StartsWith("open "))
         {
             string appName = command.Substring(5).Trim();
-
             if (appDict.ContainsKey(appName))
             {
                 Process.Start(appDict[appName]);
@@ -112,99 +128,138 @@ public class VoiceAssistant : MonoBehaviour
                 {
                     smallTextBox.text = "Okay, not added.";
                 }
-
-                return; // Stop further processing
+                return;
             }
-        }
-        else if (command.Contains("time"))
-        {
-            string timeNow = System.DateTime.Now.ToString("hh:mm tt");
-            smallTextBox.text = "The current time is " + timeNow;
-            return;
-        }
-        else if (command.Contains("date"))
-        {
-            string dateToday = System.DateTime.Now.ToString("dddd, MMMM dd, yyyy");
-            smallTextBox.text = "Today's date is " + dateToday;
-            return;
         }
         else
         {
-            string aiResponse = await AskAI(command);
-            largeTextBoxObject.SetActive(true);
-            largeText.text = aiResponse;
+            string aiReply = await AskAI(command);
+            ShowChatBubble(aiReply);
         }
     }
 
     async System.Threading.Tasks.Task<bool> PromptYesNo(string promptText)
     {
-        isAwaitingYesNoResponse = true;
         smallTextBox.text = promptText;
         lastResult = "";
         dictationRecognizer.Start();
+        isListening = true;
         await WaitForResponse();
-        isAwaitingYesNoResponse = false;
+        isListening = false;
         return lastResult.ToLower().Contains("yes");
     }
 
     async System.Threading.Tasks.Task WaitForResponse()
     {
         while (string.IsNullOrEmpty(lastResult))
-        {
             await System.Threading.Tasks.Task.Delay(100);
-        }
     }
 
     async System.Threading.Tasks.Task<string> AskAI(string prompt)
     {
-        using var client = new System.Net.Http.HttpClient();
+        // Add user message to history
+        conversationHistory.Add(new Dictionary<string, string>
+        {
+            { "role", "user" },
+            { "content", prompt }
+        });
+
+        using var client = new HttpClient();
         client.DefaultRequestHeaders.Add("Authorization", "Bearer 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");
 
         var data = new
         {
             model = "llama3-70b-8192",
-            messages = new[] {
-                new { role = "user", content = prompt }
-            }
+            messages = conversationHistory
         };
 
-        var content = new System.Net.Http.StringContent(
-            JsonConvert.SerializeObject(data), System.Text.Encoding.UTF8, "application/json"
-        );
-
+        var content = new StringContent(JsonConvert.SerializeObject(data), Encoding.UTF8, "application/json");
         var response = await client.PostAsync("https://api.groq.com/openai/v1/chat/completions", content);
-        string json = await response.Content.ReadAsStringAsync();
-        UnityEngine.Debug.Log("Groq response: " + json);
+        var json = await response.Content.ReadAsStringAsync();
 
         try
         {
-            var result = JsonConvert.DeserializeObject<GroqResponse>(json);
-            if (result?.choices != null && result.choices.Count > 0)
+            var result = JObject.Parse(json);
+            var reply = result["choices"]?[0]?["message"]?["content"]?.ToString() ?? "No reply.";
+
+            // Add AI response to history
+            conversationHistory.Add(new Dictionary<string, string>
             {
-                return result.choices[0].message.content;
-            }
-            else
-            {
-                return "No response from AI.";
-            }
+                { "role", "assistant" },
+                { "content", reply }
+            });
+
+            return reply;
         }
-        catch (System.Exception ex)
+        catch
         {
-            UnityEngine.Debug.LogError("Error parsing AI response: " + ex.Message);
-            return "Error processing response.";
+            return "Error parsing response.";
         }
     }
 
-    class GroqResponse
+
+    void ShowChatBubble(string reply)
     {
-        public List<Choice> choices { get; set; }
-        public class Choice
+        chatBubbleText.text = reply;
+        chatBubbleObject.SetActive(true);
+        chatBubbleCanvasGroup.alpha = 0f;
+
+        LeanTween.alphaCanvas(chatBubbleCanvasGroup, 1f, 0.4f);
+
+        if (fadeCoroutine != null)
+            StopCoroutine(fadeCoroutine);
+
+        fadeCoroutine = StartCoroutine(AutoFadeChatBubble());
+    }
+
+    IEnumerator AutoFadeChatBubble()
+    {
+        const float minVisibleTime = 5f;
+        yield return new WaitForSeconds(minVisibleTime);
+
+        // Wait until the user is not hovering
+        while (isHoveringChatBubble)
+            yield return null;
+
+        // Once they stop hovering, start post-hover delay
+        float elapsed = 0f;
+        while (elapsed < postHoverDelay)
         {
-            public Message message { get; set; }
+            if (isHoveringChatBubble)
+            {
+                // User re-entered, restart timer
+                elapsed = 0f;
+                yield return null;
+                continue;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
         }
-        public class Message
+
+        // Fade out and hide
+        LeanTween.alphaCanvas(chatBubbleCanvasGroup, 0f, 0.4f).setOnComplete(() =>
         {
-            public string content { get; set; }
+            chatBubbleObject.SetActive(false);
+        });
+    }
+
+
+    void LoadAppData()
+    {
+        if (File.Exists(appsPath))
+        {
+            var json = File.ReadAllText(appsPath);
+            appDict = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
         }
     }
+
+    void SaveAppData()
+    {
+        var json = JsonConvert.SerializeObject(appDict, Formatting.Indented);
+        File.WriteAllText(appsPath, json);
+    }
+
+    public void OnChatBubbleEnter() => isHoveringChatBubble = true;
+    public void OnChatBubbleExit() => isHoveringChatBubble = false;
 }

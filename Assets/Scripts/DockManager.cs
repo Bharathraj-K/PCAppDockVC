@@ -3,9 +3,8 @@ using UnityEngine.UI;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
-using SFB; // Standalone File Browser (imported from GitHub)
+using SFB;
 using TMPro;
-
 
 public class DockManager : MonoBehaviour
 {
@@ -14,19 +13,17 @@ public class DockManager : MonoBehaviour
     public GameObject appButtonPrefab;
     public Button removeButton;
 
-
-    private string savePath;
-    private List<AppData> dockApps = new List<AppData>();
+    private string sharedPath;
+    private Dictionary<string, string> dockApps = new();
 
     void Start()
     {
-        savePath = Path.Combine(Application.persistentDataPath, "dock_apps.json");
+        sharedPath = Path.Combine(Application.persistentDataPath, "vc_apps.json");
         LoadDockApps();
 
         addButton.onClick.AddListener(AddAppToDock);
-        removeButton.onClick.AddListener(RemoveLastApp); 
+        removeButton.onClick.AddListener(RemoveLastApp);
     }
-
 
     void AddAppToDock()
     {
@@ -36,31 +33,47 @@ public class DockManager : MonoBehaviour
             string exePath = paths[0];
             string name = Path.GetFileNameWithoutExtension(exePath);
 
-            AppData app = new AppData { name = name, exePath = exePath };
-            dockApps.Add(app);
-            SaveDockApps();
-            CreateAppButton(app);
+            if (!dockApps.ContainsKey(name))
+            {
+                dockApps[name] = exePath;
+                SaveDockApps();
+                CreateAppButton(name, exePath);
+            }
         }
     }
 
-    void CreateAppButton(AppData app)
+    void CreateAppButton(string name, string path)
     {
         GameObject button = Instantiate(appButtonPrefab, appContainer);
-        button.GetComponentInChildren<TextMeshProUGUI>().text = app.name;
-        button.GetComponent<Button>().onClick.AddListener(() => {
-            System.Diagnostics.Process.Start(app.exePath);
+
+        // Extract icon
+        Texture2D tex = IconExtractor.GetIconFromExe(path);
+        if (tex != null)
+        {
+            Sprite iconSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+            button.GetComponentInChildren<Image>().sprite = iconSprite;
+        }
+
+        // Remove text (if any)
+        TextMeshProUGUI tmpText = button.GetComponentInChildren<TextMeshProUGUI>();
+        if (tmpText != null) tmpText.text = "";
+
+        button.GetComponent<Button>().onClick.AddListener(() =>
+        {
+            System.Diagnostics.Process.Start(path);
         });
     }
 
+
     void LoadDockApps()
     {
-        if (File.Exists(savePath))
+        if (File.Exists(sharedPath))
         {
-            string json = File.ReadAllText(savePath);
-            dockApps = JsonConvert.DeserializeObject<List<AppData>>(json);
-            foreach (var app in dockApps)
+            string json = File.ReadAllText(sharedPath);
+            dockApps = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+            foreach (var kvp in dockApps)
             {
-                CreateAppButton(app);
+                CreateAppButton(kvp.Key, kvp.Value);
             }
         }
     }
@@ -68,24 +81,31 @@ public class DockManager : MonoBehaviour
     void SaveDockApps()
     {
         string json = JsonConvert.SerializeObject(dockApps, Formatting.Indented);
-        File.WriteAllText(savePath, json);
+        File.WriteAllText(sharedPath, json);
     }
 
     public void RemoveLastApp()
     {
         if (dockApps.Count == 0) return;
 
-        // Remove from list
-        var lastApp = dockApps[dockApps.Count - 1];
-        dockApps.RemoveAt(dockApps.Count - 1);
-        SaveDockApps();
-
-        // Remove last button from container
-        if (appContainer.childCount > 0)
+        // Get last added key
+        string lastKey = null;
+        foreach (var key in dockApps.Keys)
         {
-            Transform lastChild = appContainer.GetChild(appContainer.childCount - 1);
-            Destroy(lastChild.gameObject);
+            lastKey = key;
+        }
+
+        if (lastKey != null)
+        {
+            dockApps.Remove(lastKey);
+            SaveDockApps();
+
+            // Remove last button from container
+            if (appContainer.childCount > 0)
+            {
+                Transform lastChild = appContainer.GetChild(appContainer.childCount - 1);
+                Destroy(lastChild.gameObject);
+            }
         }
     }
-
 }
