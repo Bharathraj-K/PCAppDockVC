@@ -3,8 +3,8 @@ guid: 30954baf37c080f4898d00aa81e8d284
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: -5757580214295617947
-    second: PANEL2_0
+      213: 3189960467041063848
+    second: Panel2_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -51,8 +51,8 @@ TextureImporter:
   spriteMeshType: 1
   alignment: 0
   spritePivot: {x: 0.5, y: 0.5}
-  spritePixelsToUnits: 100
-  spriteBorder: {x: 70, y: 0, z: 70, w: 70}
+  spritePixelsToUnits: 1000
+  spriteBorder: {x: 175, y: 175, z: 175, w: 175}
   spriteGenerateFallbackPhysicsShape: 1
   alphaUsage: 1
   alphaIsTransparency: 1
@@ -126,13 +126,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: PANEL2_0
+      name: Panel2_0
       rect:
         serializedVersion: 2
-        x: 0
+        x: 2
         y: 0
-        width: 1134
-        height: 756
+        width: 2264
+        height: 1512
       alignment: 0
       pivot: {x: 0.5, y: 0.5}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -141,8 +141,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 56e9711dc47f810b0800000000000000
-      internalID: -5757580214295617947
+      spriteID: 8a39585c424054c20800000000000000
+      internalID: 3189960467041063848
       vertices: []
       indices: 
       edges: []
@@ -161,7 +161,7 @@ TextureImporter:
     spriteCustomMetadata:
       entries: []
     nameFileIdTable:
-      PANEL2_0: -5757580214295617947
+      Panel2_0: 3189960467041063848
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 
